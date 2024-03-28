@@ -191,7 +191,9 @@ bool tree_sitter_starlark_external_scanner_scan(void *payload, TSLexer *lexer,
 
       if (is_left_brace || is_dollar) {
         if (lexer->lookahead == '{') {
-          advance(lexer);
+          while (lexer->lookahead == '{') {
+            advance(lexer);
+          }
           lexer->mark_end(lexer);
           lexer->result_symbol = ESCAPE_INTERPOLATION;
           return true;
@@ -204,7 +206,7 @@ bool tree_sitter_starlark_external_scanner_scan(void *payload, TSLexer *lexer,
           lexer->result_symbol = STRING_CONTENT;
           return true;
         }
-      } else { 
+      } else {
         // lookahead was '}'
         if (scanner->inside_interpolation) {
           scanner->inside_interpolation = false;
