@@ -188,6 +188,13 @@ module.exports = grammar(Python, {
       )),
       alias('type', $.identifier),
     ),
+
+    // Starlark f-strings only support identifiers
+    interpolation: $ => seq(
+      '{',
+      $.identifier,
+      '}',
+    ),
   },
 });
 
