@@ -1,8 +1,8 @@
+#include "tree_sitter/parser.h"
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <tree_sitter/parser.h>
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
@@ -158,7 +158,7 @@ typedef struct {
   indent_vec indents;
   delimiter_vec delimiters;
   bool inside_f_string;
-  bool inside_dollar_escaped_interpolation;
+  bool inside_interpolation;
 } Scanner;
 
 static inline void advance(TSLexer *lexer) { lexer->advance(lexer, false); }
@@ -184,27 +184,43 @@ bool tree_sitter_starlark_external_scanner_scan(void *payload, TSLexer *lexer,
     if (is_format(&delimiter)) {
       lexer->mark_end(lexer);
       bool is_dollar = lexer->lookahead == '$';
-      bool is_left_brace = lexer->lookahead == '{' || is_dollar;
-      bool in_dollar_escape = scanner->inside_dollar_escaped_interpolation;
+      bool is_left_brace = lexer->lookahead == '{';
 
       advance(lexer);
       advanced_once = true;
 
-      if (is_left_brace && lexer->lookahead == '{') {
-        advance(lexer);
-        lexer->mark_end(lexer);
-        scanner->inside_dollar_escaped_interpolation = is_dollar;
-        lexer->result_symbol = ESCAPE_INTERPOLATION;
-        return true;
-      } else if (in_dollar_escape || lexer->lookahead == '}') {
-        if (!in_dollar_escape) {
+      if (is_left_brace || is_dollar) {
+        if (lexer->lookahead == '{') {
           advance(lexer);
+          lexer->mark_end(lexer);
+          lexer->result_symbol = ESCAPE_INTERPOLATION;
+          return true;
+        } else if (is_left_brace) {
+          scanner->inside_interpolation = true;
+          return false;
+        } else {
+          // '$' is not part of escape interpolation sequence.
+          lexer->mark_end(lexer);
+          lexer->result_symbol = STRING_CONTENT;
+          return true;
         }
-        lexer->mark_end(lexer);
-        lexer->result_symbol = ESCAPE_INTERPOLATION;
-        scanner->inside_dollar_escaped_interpolation = false;
-        return true;
+      } else { 
+        // lookahead was '}'
+        if (scanner->inside_interpolation) {
+          scanner->inside_interpolation = false;
+          lexer->result_symbol = CLOSE_BRACE;
+          return true;
+        } else {
+          // treat as escape whether or not lookead == '}'
+          if (lexer->lookahead == '}') {
+            advance(lexer);
+          }
+          lexer->mark_end(lexer);
+          lexer->result_symbol = ESCAPE_INTERPOLATION;
+          return true;
+        }
       }
+
       return false;
     }
   }
@@ -275,6 +291,7 @@ bool tree_sitter_starlark_external_scanner_scan(void *payload, TSLexer *lexer,
                 VEC_POP(scanner->delimiters);
                 lexer->result_symbol = STRING_END;
                 scanner->inside_f_string = false;
+                scanner->inside_interpolation = false;
               }
               return true;
             }
@@ -293,6 +310,7 @@ bool tree_sitter_starlark_external_scanner_scan(void *payload, TSLexer *lexer,
           VEC_POP(scanner->delimiters);
           lexer->result_symbol = STRING_END;
           scanner->inside_f_string = false;
+          scanner->inside_interpolation = false;
         }
         lexer->mark_end(lexer);
         return true;
@@ -465,7 +483,7 @@ unsigned tree_sitter_starlark_external_scanner_serialize(void *payload,
 
   size_t size = 0;
 
-  buffer[size++] = (char)scanner->inside_dollar_escaped_interpolation;
+  buffer[size++] = (char)scanner->inside_interpolation;
   buffer[size++] = (char)scanner->inside_f_string;
 
   size_t delimiter_count = scanner->delimiters.len;
@@ -501,7 +519,7 @@ void tree_sitter_starlark_external_scanner_deserialize(void *payload,
   if (length > 0) {
     size_t size = 0;
 
-    scanner->inside_dollar_escaped_interpolation = (bool)buffer[size++];
+    scanner->inside_interpolation = (bool)buffer[size++];
     scanner->inside_f_string = (bool)buffer[size++];
 
     size_t delimiter_count = (uint8_t)buffer[size++];

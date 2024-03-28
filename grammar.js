@@ -189,10 +189,13 @@ module.exports = grammar(Python, {
       alias('type', $.identifier),
     ),
 
-    // Starlark f-strings only support identifiers
+    // Please f-strings only support simple variable references, or CONFIG.NAME references
     interpolation: $ => seq(
       '{',
-      $.identifier,
+      seq(
+        optional(alias('CONFIG.', $.identifier)),
+        $.identifier
+      ),
       '}',
     ),
   },
